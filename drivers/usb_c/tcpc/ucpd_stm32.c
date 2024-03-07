@@ -381,6 +381,12 @@ static void dead_battery(const struct device *dev, bool en)
 
 	LL_UCPD_WriteReg(config->ucpd_port, CR, cr);
 	update_stm32g0x_cc_line(config->ucpd_port);
+#elif CONFIG_SOC_SERIES_STM32U5X
+	if (en) {
+		CLEAR_BIT(PWR->CR3, PWR_UCPDR_UCPD_DBDIS);
+	} else {
+		SET_BIT(PWR->CR3, PWR_UCPDR_UCPD_DBDIS);
+	}
 #else
 	if (en) {
 		CLEAR_BIT(PWR->CR3, PWR_CR3_UCPD_DBDIS);
