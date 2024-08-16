@@ -19,6 +19,9 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(can_mcp251xfd, CONFIG_CAN_LOG_LEVEL);
 
+K_THREAD_STACK_DEFINE(polling_thread_stack, 256);
+static struct k_thread polling_thread;
+
 static void mcp251xfd_canframe_to_txobj(const struct can_frame *src, int mailbox_idx,
 					struct mcp251xfd_txobj *dst)
 {
@@ -254,8 +257,8 @@ static int mcp251xfd_get_mode_internal(const struct device *dev, uint8_t *mode)
 }
 
 static int mcp251xfd_reg_check_value_wtimeout(const struct device *dev, uint16_t addr,
-					      uint32_t value, uint32_t mask,
-					      uint32_t timeout_usec, int retries, bool allow_yield)
+					      uint32_t value, uint32_t mask, uint32_t timeout_usec,
+					      int retries, bool allow_yield)
 {
 	uint32_t *reg;
 	uint32_t delay = timeout_usec / retries;
@@ -330,8 +333,8 @@ static int mcp251xfd_set_mode_internal(const struct device *dev, uint8_t request
 
 #if defined(CONFIG_CAN_FD_MODE)
 	if (dev_data->current_mcp251xfd_mode == MCP251XFD_REG_CON_MODE_CONFIG) {
-		if (requested_mode ==  MCP251XFD_REG_CON_MODE_CAN2_0 ||
-		    requested_mode ==  MCP251XFD_REG_CON_MODE_EXT_LOOPBACK ||
+		if (requested_mode == MCP251XFD_REG_CON_MODE_CAN2_0 ||
+		    requested_mode == MCP251XFD_REG_CON_MODE_EXT_LOOPBACK ||
 		    requested_mode == MCP251XFD_REG_CON_MODE_INT_LOOPBACK) {
 			ret = mcp251xfd_set_tdc(dev, false);
 		} else if (requested_mode == MCP251XFD_REG_CON_MODE_MIXED) {
@@ -422,7 +425,7 @@ static int mcp251xfd_set_timing(const struct device *dev, const struct can_timin
 	reg = mcp251xfd_get_spi_buf_ptr(dev);
 	tmp = FIELD_PREP(MCP251XFD_REG_NBTCFG_BRP_MASK, timing->prescaler - 1);
 	tmp |= FIELD_PREP(MCP251XFD_REG_NBTCFG_TSEG1_MASK,
-			   timing->prop_seg + timing->phase_seg1 - 1);
+			  timing->prop_seg + timing->phase_seg1 - 1);
 	tmp |= FIELD_PREP(MCP251XFD_REG_NBTCFG_TSEG2_MASK, timing->phase_seg2 - 1);
 	tmp |= FIELD_PREP(MCP251XFD_REG_NBTCFG_SJW_MASK, timing->sjw - 1);
 	*reg = tmp;
@@ -436,7 +439,6 @@ static int mcp251xfd_set_timing(const struct device *dev, const struct can_timin
 
 	return ret;
 }
-
 
 #if defined(CONFIG_CAN_FD_MODE)
 static int mcp251xfd_set_timing_data(const struct device *dev, const struct can_timing *timing)
@@ -556,7 +558,7 @@ static int mcp251xfd_add_rx_filter(const struct device *dev, can_rx_callback_t r
 
 	k_mutex_lock(&dev_data->mutex, K_FOREVER);
 
-	for (filter_idx = 0; filter_idx < CONFIG_CAN_MAX_FILTER ; filter_idx++) {
+	for (filter_idx = 0; filter_idx < CONFIG_CAN_MAX_FILTER; filter_idx++) {
 		if ((BIT(filter_idx) & dev_data->filter_usage) == 0) {
 			break;
 		}
@@ -939,7 +941,7 @@ static int mcp251xfd_handle_modif(const struct device *dev)
 	/* try to transition back into our target mode */
 	if (dev_data->common.started) {
 		LOG_INF("Switching back into mode %d", dev_data->next_mcp251xfd_mode);
-		ret =  mcp251xfd_set_mode_internal(dev, dev_data->next_mcp251xfd_mode);
+		ret = mcp251xfd_set_mode_internal(dev, dev_data->next_mcp251xfd_mode);
 	}
 
 finish:
@@ -1140,41 +1142,14 @@ static void mcp251xfd_handle_interrupts(const struct device *dev)
 
 static void mcp251xfd_int_thread(const struct device *dev)
 {
-	const struct mcp251xfd_config *dev_cfg = dev->config;
 	struct mcp251xfd_data *dev_data = dev->data;
 
 	while (1) {
-		int ret;
 
 		k_sem_take(&dev_data->int_sem, K_FOREVER);
+		LOG_DBG("mcp251xfd_handle_interrupts");
 		mcp251xfd_handle_interrupts(dev);
-
-		/* Re-enable pin interrupts */
-		ret = gpio_pin_interrupt_configure_dt(&dev_cfg->int_gpio_dt, GPIO_INT_LEVEL_ACTIVE);
-		if (ret < 0) {
-			LOG_ERR("Couldn't enable pin interrupt [%d]", ret);
-			k_oops();
-		}
 	}
-}
-
-static void mcp251xfd_int_gpio_callback(const struct device *dev_gpio, struct gpio_callback *cb,
-					uint32_t pins)
-{
-	ARG_UNUSED(dev_gpio);
-	struct mcp251xfd_data *dev_data = CONTAINER_OF(cb, struct mcp251xfd_data, int_gpio_cb);
-	const struct device *dev = dev_data->dev;
-	const struct mcp251xfd_config *dev_cfg = dev->config;
-	int ret;
-
-	/* Disable pin interrupts */
-	ret = gpio_pin_interrupt_configure_dt(&dev_cfg->int_gpio_dt, GPIO_INT_DISABLE);
-	if (ret < 0) {
-		LOG_ERR("Couldn't disable pin interrupt [%d]", ret);
-		k_oops();
-	}
-
-	k_sem_give(&dev_data->int_sem);
 }
 
 static int mcp251xfd_get_capabilities(const struct device *dev, can_mode_t *cap)
@@ -1341,7 +1316,7 @@ static inline int mcp251xfd_init_con_reg(const struct device *dev)
 	tmp = MCP251XFD_REG_CON_ISOCRCEN | MCP251XFD_REG_CON_WAKFIL | MCP251XFD_REG_CON_TXQEN |
 	      MCP251XFD_REG_CON_STEF;
 	tmp |= FIELD_PREP(MCP251XFD_REG_CON_WFT_MASK, MCP251XFD_REG_CON_WFT_T11FILTER) |
-		FIELD_PREP(MCP251XFD_REG_CON_REQOP_MASK, MCP251XFD_REG_CON_MODE_CONFIG);
+	       FIELD_PREP(MCP251XFD_REG_CON_REQOP_MASK, MCP251XFD_REG_CON_MODE_CONFIG);
 	*reg = tmp;
 
 	return mcp251xfd_write(dev, MCP251XFD_REG_CON, MCP251XFD_REG_SIZE);
@@ -1379,16 +1354,15 @@ static inline int mcp251xfd_init_iocon_reg(const struct device *dev)
 	uint32_t *reg = mcp251xfd_get_spi_buf_ptr(dev);
 	uint32_t tmp;
 
-/*
- *         MCP2518FD Errata: DS80000789
- *         Writing Byte 2/3 of the IOCON register using single SPI write cleat LAT0 and LAT1.
- *         This has no effect in the current version since LAT0/1 are set to zero anyway.
- *         However, it needs to be properly handled if other values are needed. Errata suggests
- *         to do single byte writes instead.
- */
+	/*
+	 *         MCP2518FD Errata: DS80000789
+	 *         Writing Byte 2/3 of the IOCON register using single SPI write cleat LAT0 and
+	 * LAT1. This has no effect in the current version since LAT0/1 are set to zero anyway.
+	 *         However, it needs to be properly handled if other values are needed. Errata
+	 * suggests to do single byte writes instead.
+	 */
 
-	tmp = MCP251XFD_REG_IOCON_TRIS0 | MCP251XFD_REG_IOCON_TRIS1 | MCP251XFD_REG_IOCON_PM0 |
-	      MCP251XFD_REG_IOCON_PM1;
+	tmp = MCP251XFD_REG_IOCON_TRIS1 | MCP251XFD_REG_IOCON_PM0 | MCP251XFD_REG_IOCON_PM1;
 
 	if (dev_cfg->sof_on_clko) {
 		tmp |= MCP251XFD_REG_IOCON_SOF;
@@ -1396,7 +1370,7 @@ static inline int mcp251xfd_init_iocon_reg(const struct device *dev)
 
 	*reg = sys_cpu_to_le32(tmp);
 
-	return  mcp251xfd_write(dev, MCP251XFD_REG_IOCON, MCP251XFD_REG_SIZE);
+	return mcp251xfd_write(dev, MCP251XFD_REG_IOCON, MCP251XFD_REG_SIZE);
 }
 
 static inline int mcp251xfd_init_int_reg(const struct device *dev)
@@ -1474,8 +1448,7 @@ static int mcp251xfd_init_tscon(const struct device *dev)
 	uint32_t tmp;
 
 	tmp = MCP251XFD_REG_TSCON_TBCEN;
-	tmp |= FIELD_PREP(MCP251XFD_REG_TSCON_TBCPRE_MASK,
-			  dev_cfg->timestamp_prescaler - 1);
+	tmp |= FIELD_PREP(MCP251XFD_REG_TSCON_TBCPRE_MASK, dev_cfg->timestamp_prescaler - 1);
 
 	*reg = sys_cpu_to_le32(tmp);
 
@@ -1487,7 +1460,10 @@ static int mcp251xfd_reset(const struct device *dev)
 {
 	const struct mcp251xfd_config *dev_cfg = dev->config;
 	uint16_t cmd = sys_cpu_to_be16(MCP251XFD_SPI_INSTRUCTION_RESET);
-	const struct spi_buf tx_buf = {.buf = &cmd, .len = sizeof(cmd),};
+	const struct spi_buf tx_buf = {
+		.buf = &cmd,
+		.len = sizeof(cmd),
+	};
 	const struct spi_buf_set tx = {.buffers = &tx_buf, .count = 1};
 	int ret;
 
@@ -1503,6 +1479,21 @@ static int mcp251xfd_reset(const struct device *dev)
 	return ret;
 }
 
+static void polling_thread_task(void *p1, void *p2, void *p3)
+{
+	struct device *dev = (struct device *)p1;
+	const struct mcp251xfd_config *dev_cfg = dev->config;
+	struct mcp251xfd_data *dev_data = dev->data;
+
+	while (1) {
+		k_usleep(500);
+		const int int_state = gpio_pin_get_dt(&dev_cfg->int_gpio_dt);
+		if (int_state == 1) {
+			k_sem_give(&dev_data->int_sem);
+		}
+	}
+}
+
 static int mcp251xfd_init(const struct device *dev)
 {
 	const struct mcp251xfd_config *dev_cfg = dev->config;
@@ -1510,9 +1501,9 @@ static int mcp251xfd_init(const struct device *dev)
 	uint32_t *reg;
 	uint8_t opmod;
 	int ret;
-	struct can_timing timing = { 0 };
+	struct can_timing timing = {0};
 #if defined(CONFIG_CAN_FD_MODE)
-	struct can_timing timing_data = { 0 };
+	struct can_timing timing_data = {0};
 #endif
 
 	dev_data->dev = dev;
@@ -1552,16 +1543,10 @@ static int mcp251xfd_init(const struct device *dev)
 		return -EINVAL;
 	}
 
-	gpio_init_callback(&dev_data->int_gpio_cb, mcp251xfd_int_gpio_callback,
-			   BIT(dev_cfg->int_gpio_dt.pin));
-
-	if (gpio_add_callback_dt(&dev_cfg->int_gpio_dt, &dev_data->int_gpio_cb) < 0) {
-		return -EINVAL;
-	}
-
-	if (gpio_pin_interrupt_configure_dt(&dev_cfg->int_gpio_dt, GPIO_INT_LEVEL_ACTIVE) < 0) {
-		return -EINVAL;
-	}
+	k_thread_create(&polling_thread, polling_thread_stack,
+			K_THREAD_STACK_SIZEOF(polling_thread_stack), polling_thread_task,
+			(void *)dev, NULL, NULL, K_PRIO_COOP(CONFIG_CAN_MCP251XFD_INT_THREAD_PRIO),
+			0, K_NO_WAIT);
 
 	k_thread_create(&dev_data->int_thread, dev_data->int_thread_stack,
 			CONFIG_CAN_MCP251XFD_INT_THREAD_STACK_SIZE,
@@ -1698,35 +1683,39 @@ static const struct can_driver_api mcp251xfd_api_funcs = {
 	.set_state_change_callback = mcp251xfd_set_state_change_callback,
 	.get_core_clock = mcp251xfd_get_core_clock,
 	.get_max_filters = mcp251xfd_get_max_filters,
-	.timing_min = {
-		.sjw = 1,
-		.prop_seg = 0,
-		.phase_seg1 = 2,
-		.phase_seg2 = 1,
-		.prescaler = 1,
-	},
-	.timing_max = {
-		.sjw = 128,
-		.prop_seg = 0,
-		.phase_seg1 = 256,
-		.phase_seg2 = 128,
-		.prescaler = 256,
-	},
+	.timing_min =
+		{
+			.sjw = 1,
+			.prop_seg = 0,
+			.phase_seg1 = 2,
+			.phase_seg2 = 1,
+			.prescaler = 1,
+		},
+	.timing_max =
+		{
+			.sjw = 128,
+			.prop_seg = 0,
+			.phase_seg1 = 256,
+			.phase_seg2 = 128,
+			.prescaler = 256,
+		},
 #if defined(CONFIG_CAN_FD_MODE)
-	.timing_data_min = {
-		.sjw = 1,
-		.prop_seg = 0,
-		.phase_seg1 = 1,
-		.phase_seg2 = 1,
-		.prescaler = 1,
-	},
-	.timing_data_max = {
-		.sjw = 16,
-		.prop_seg = 0,
-		.phase_seg1 = 32,
-		.phase_seg2 = 16,
-		.prescaler = 256,
-	},
+	.timing_data_min =
+		{
+			.sjw = 1,
+			.prop_seg = 0,
+			.phase_seg1 = 1,
+			.phase_seg2 = 1,
+			.prescaler = 1,
+		},
+	.timing_data_max =
+		{
+			.sjw = 16,
+			.prop_seg = 0,
+			.phase_seg1 = 32,
+			.phase_seg2 = 16,
+			.prescaler = 256,
+		},
 #endif
 };
 
@@ -1765,10 +1754,9 @@ static const struct can_driver_api mcp251xfd_api_funcs = {
 			     .capacity = MCP251XFD_TEF_FIFO_ITEMS,                                 \
 			     .item_size = MCP251XFD_TEF_FIFO_ITEM_SIZE,                            \
 			     .msg_handler = mcp251xfd_tef_fifo_handler},                           \
-		MCP251XFD_SET_CLOCK(inst)                                                          \
-	};                                                                                         \
+		MCP251XFD_SET_CLOCK(inst)};                                                        \
                                                                                                    \
-	CAN_DEVICE_DT_INST_DEFINE(inst, mcp251xfd_init, NULL, &mcp251xfd_data_##inst,             \
+	CAN_DEVICE_DT_INST_DEFINE(inst, mcp251xfd_init, NULL, &mcp251xfd_data_##inst,              \
 				  &mcp251xfd_config_##inst, POST_KERNEL, CONFIG_CAN_INIT_PRIORITY, \
 				  &mcp251xfd_api_funcs);
 
