@@ -9,4 +9,4 @@ config SOC_FAMILY_SILABS_S2
 
 rsource "*/Kconfig"
 
-endif # SOC_FAMILY_SILABS_S2
+endif
