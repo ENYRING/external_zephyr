@@ -24,6 +24,7 @@ zephyr_library_sources_ifdef(CONFIG_CLOCK_CONTROL_NRF_DRIVER_CALIBRATION nrf_clo
 zephyr_library_sources_ifdef(CONFIG_CLOCK_CONTROL_RV32M1_PCC          clock_control_rv32m1_pcc.c)
 zephyr_library_sources_ifdef(CONFIG_CLOCK_CONTROL_INFINEON_CAT1       clock_control_ifx_cat1.c)
 zephyr_library_sources_ifdef(CONFIG_CLOCK_CONTROL_SAM                 clock_control_sam_pmc.c)
+zephyr_library_sources_ifdef(CONFIG_CLOCK_CONTROL_SILABS_SERIES       clock_control_silabs_series.c)
 zephyr_library_sources_ifdef(CONFIG_CLOCK_CONTROL_SMARTBOND           clock_control_smartbond.c)
 zephyr_library_sources_ifdef(CONFIG_CLOCK_CONTROL_NUMAKER_SCC         clock_control_numaker_scc.c)
 zephyr_library_sources_ifdef(CONFIG_CLOCK_CONTROL_NXP_S32             clock_control_nxp_s32.c)
