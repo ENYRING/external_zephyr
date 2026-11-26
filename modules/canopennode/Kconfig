@@ -17,7 +17,7 @@ if CANOPENNODE
 
 config CANOPENNODE_SDO_BUFFER_SIZE
 	int "CANopen SDO buffer size"
-	default 32
+	default 889
 	range 7 889
 	help
 	  Size of the internal CANopen SDO buffer in bytes. Size must
