@@ -1685,13 +1685,14 @@ static int mcp251xfd_init(const struct device *dev)
 			K_THREAD_STACK_SIZEOF(polling_thread_stack), polling_thread_task,
 			(void *)dev, NULL, NULL, K_PRIO_COOP(CONFIG_CAN_MCP251XFD_INT_THREAD_PRIO),
 			0, K_NO_WAIT);
+	(void)k_thread_name_set(&polling_thread, "MCP251XFD_polling");
 
 	dev_data->int_thread_id = k_thread_create(&dev_data->int_thread, dev_data->int_thread_stack,
 			CONFIG_CAN_MCP251XFD_INT_THREAD_STACK_SIZE,
 			(k_thread_entry_t)mcp251xfd_int_thread, (void *)dev, NULL, NULL,
 			K_PRIO_COOP(CONFIG_CAN_MCP251XFD_INT_THREAD_PRIO), 0, K_NO_WAIT);
 
-	(void)k_thread_name_set(&dev_data->int_thread, "MCP251XFD interrupt thread");
+	(void)k_thread_name_set(&dev_data->int_thread, "MCP251XFD_interrupt");
 
 	ret = mcp251xfd_reset(dev);
 	if (ret < 0) {

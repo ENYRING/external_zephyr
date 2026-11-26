@@ -162,6 +162,7 @@ static int slz_bt_open(const struct device *dev, bt_hci_recv_t recv)
 			slz_thread_func, NULL, NULL, NULL,
 			K_PRIO_COOP(CONFIG_BT_DRIVER_RX_HIGH_PRIO), 0,
 			K_NO_WAIT);
+	(void)k_thread_name_set(&slz_ll_thread, "slz_hci");
 
 	rail_isr_installer();
 	sl_rail_util_pa_init();
