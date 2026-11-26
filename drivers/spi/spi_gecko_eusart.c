@@ -15,6 +15,7 @@
 #include <zephyr/drivers/clock_control/clock_control_silabs.h>
 #include <zephyr/drivers/pinctrl.h>
 #include <zephyr/logging/log.h>
+#include <zephyr/pm/device.h>
 
 #include <em_cmu.h>
 #include <em_eusart.h>
@@ -30,6 +31,7 @@ LOG_MODULE_REGISTER(spi_gecko_eusart, CONFIG_SPI_LOG_LEVEL);
 
 struct spi_gecko_eusart_data {
 	struct spi_context ctx;
+	bool force_reconfiguration;
 };
 
 struct spi_gecko_eusart_config {
@@ -62,10 +64,11 @@ static int spi_eusart_config(const struct device *dev, const struct spi_config *
 	/* Max supported SPI frequency is half the source clock */
 	spi_frequency /= 2;
 
-	if (spi_context_configured(&data->ctx, config)) {
+	if (spi_context_configured(&data->ctx, config) && !data->force_reconfiguration) {
 		/* Already configured. No need to do it again. */
 		return 0;
 	}
+	data->force_reconfiguration = false;
 
 	if (config->operation & SPI_HALF_DUPLEX) {
 		LOG_ERR("Half-duplex not supported");
@@ -284,12 +287,70 @@ static void spi_gecko_eusart_xfer(const struct device *dev, const struct spi_con
 	spi_context_complete(ctx, dev, 0);
 }
 
+#ifdef CONFIG_PM_DEVICE
+
+static int release_cs_pins(const struct device *dev)
+{
+	struct spi_gecko_eusart_data *data = dev->data;
+	const struct gpio_dt_spec *cs_gpio;
+	int ret;
+
+	for (cs_gpio = data->ctx.cs_gpios; cs_gpio < &data->ctx.cs_gpios[data->ctx.num_cs_gpios]; cs_gpio++) {
+		if (!device_is_ready(cs_gpio->port)) {
+			LOG_ERR("CS GPIO port %s pin %d is not ready",
+				cs_gpio->port->name, cs_gpio->pin);
+			return -ENODEV;
+		}
+
+		ret = gpio_pin_configure_dt(cs_gpio, GPIO_OUTPUT_ACTIVE);
+		if (ret < 0) {
+			return ret;
+		}
+	}
+	return 0;
+}
+
+static int spi_gecko_eusart_pm_action(const struct device *dev, enum pm_device_action action)
+{
+	const struct spi_gecko_eusart_config *config = dev->config;
+	struct spi_gecko_eusart_data *data = dev->data;
+	int err;
+
+	switch (action) {
+	case PM_DEVICE_ACTION_SUSPEND:
+		LOG_DBG("SPI SUSPEND");
+		spi_context_unlock_unconditionally(&data->ctx);
+		err = release_cs_pins(dev);
+		err |= clock_control_off(config->clock_dev,
+				(clock_control_subsys_t)&config->clock_cfg);
+		if (err < 0) {
+			return err;
+		}
+		return 0;
+	case PM_DEVICE_ACTION_RESUME:
+		LOG_DBG("SPI RESUME");
+		data->force_reconfiguration = true;
+		err = spi_context_cs_configure_all(&data->ctx);
+		err |= pinctrl_apply_state(config->pcfg, PINCTRL_STATE_DEFAULT);
+		if (err < 0) {
+			return err;
+		}
+		return 0;
+	default:
+		return -ENOTSUP;
+	}
+}
+
+#endif
+
 /* API Functions */
 static int spi_gecko_eusart_init(const struct device *dev)
 {
 	int err;
 	const struct spi_gecko_eusart_config *config = dev->config;
 	struct spi_gecko_eusart_data *data = dev->data;
+
+	data->force_reconfiguration = false;
 
 	err = pinctrl_apply_state(config->pcfg, PINCTRL_STATE_DEFAULT);
 	if (err < 0) {
@@ -381,7 +442,8 @@ static const struct spi_driver_api spi_gecko_eusart_api = {
 		.clock_dev = DEVICE_DT_GET(DT_INST_CLOCKS_CTLR(n)),                                \
 		.clock_cfg = SILABS_DT_INST_CLOCK_CFG(n),                                          \
 		.clock_frequency = DT_INST_PROP_OR(n, clock_frequency, 1000000)};                  \
-	DEVICE_DT_INST_DEFINE(n, spi_gecko_eusart_init, NULL, &spi_gecko_eusart_data_##n,          \
+	PM_DEVICE_DT_INST_DEFINE(n, spi_gecko_eusart_pm_action);\
+	DEVICE_DT_INST_DEFINE(n, spi_gecko_eusart_init, PM_DEVICE_DT_INST_GET(n), &spi_gecko_eusart_data_##n,          \
 			      &spi_gecko_eusart_cfg_##n, POST_KERNEL, CONFIG_SPI_INIT_PRIORITY,    \
 			      &spi_gecko_eusart_api);
 
