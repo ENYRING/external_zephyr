@@ -134,7 +134,35 @@ enum mcumgr_err_t {
 	MGMT_ERR_UNSUPPORTED_TOO_NEW,
 
 	/** User errors defined from 256 onwards */
-	MGMT_ERR_EPERUSER	= 256
+	MGMT_ERR_EPERUSER = 256,
+
+	/** Firmware is not BCU or VCU firmware. */
+	MGMT_ERR_UNAUTHORIZED_FW,
+
+	/** Battery SOC is too low. */
+	MGMT_ERR_NOT_ENOUGH_POWER,
+
+	/** Safety errors are present. */
+	MGMT_ERR_ERROR_PRESENT,
+
+	/** It's the same firmware version. */
+	MGMT_ERR_SAME_VERSION,
+
+	/** Powerpath is close. */
+	MGMT_ERR_POWER_PATH_CLOSE,
+
+	/** There is no bike connected to the BCU. */
+	MGMT_ERR_VCU_NO_BIKE,
+
+	/** Bike HMI is on. */
+	MGMT_ERR_BIKE_HMI_ON,
+
+	/** E-lock is unlock or unknown. */
+	MGMT_ERR_LOCK,
+
+	/* Not a real error — used for compile-time checking
+	 * to ensure no value exceeds ERR_VCU_FOTA_E */
+	MGMT_ERR_COUNT
 };
 
 #define MGMT_HDR_SIZE		8
