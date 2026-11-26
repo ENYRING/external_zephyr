@@ -12,23 +12,23 @@
 #include <zephyr/logging/log.h>
 
 LOG_MODULE_REGISTER(fxl6408, CONFIG_FXL6408_LOG_LEVEL);
-#define DT_DRV_COMPAT             fcs_fxl6408
+#define DT_DRV_COMPAT fcs_fxl6408
 
 /* Register definitions */
-#define REG_DEVICE_ID_CTRL        0x01
-#define REG_DIRECTION             0x03
-#define REG_OUTPUT                0x05
-#define REG_OUTPUT_HIGH_Z         0x07
-#define REG_INPUT_DEFAULT_STATE   0x09
-#define REG_PUD_EN                0x0B
-#define REG_PUD_SEL               0x0D
-#define REG_INPUT_VALUE           0x0F
-#define REG_INT_MASK              0x11
-#define REG_INT_STATUS            0x13
+#define REG_DEVICE_ID_CTRL      0x01
+#define REG_DIRECTION           0x03
+#define REG_OUTPUT              0x05
+#define REG_OUTPUT_HIGH_Z       0x07
+#define REG_INPUT_DEFAULT_STATE 0x09
+#define REG_PUD_EN              0x0B
+#define REG_PUD_SEL             0x0D
+#define REG_INPUT_VALUE         0x0F
+#define REG_INT_MASK            0x11
+#define REG_INT_STATUS          0x13
 
-#define SUPPORTED_FLAGS (GPIO_INPUT | GPIO_OUTPUT | GPIO_OUTPUT_INIT_LOW |\
-			GPIO_OUTPUT_INIT_HIGH | GPIO_PULL_DOWN | GPIO_PULL_UP |\
-			GPIO_ACTIVE_HIGH | GPIO_ACTIVE_LOW)
+#define SUPPORTED_FLAGS                                                                            \
+	(GPIO_INPUT | GPIO_OUTPUT | GPIO_OUTPUT_INIT_LOW | GPIO_OUTPUT_INIT_HIGH |                 \
+	 GPIO_PULL_DOWN | GPIO_PULL_UP | GPIO_ACTIVE_HIGH | GPIO_ACTIVE_LOW)
 
 /** Configuration data*/
 struct gpio_fxl6408_config {
@@ -37,6 +37,7 @@ struct gpio_fxl6408_config {
 
 	/** Controller I2C DT specification */
 	struct i2c_dt_spec i2c;
+	struct gpio_dt_spec nreset_pin;
 };
 
 /** Runtime driver data */
@@ -95,8 +96,7 @@ static int read_port_regs(const struct device *dev, uint8_t reg, uint8_t *cache)
  *
  * @return 0 if successful, failed otherwise.
  */
-static int write_port_regs(const struct device *dev, uint8_t reg,
-			   uint8_t *cache, uint8_t value)
+static int write_port_regs(const struct device *dev, uint8_t reg, uint8_t *cache, uint8_t value)
 {
 	const struct gpio_fxl6408_config *const config = dev->config;
 	struct gpio_fxl6408_drv_data *const drv_data =
@@ -106,8 +106,7 @@ static int write_port_regs(const struct device *dev, uint8_t reg,
 	if (*cache != value || drv_data->force_write) {
 		ret = i2c_reg_write_byte_dt(&config->i2c, reg, value);
 		if (ret != 0) {
-			LOG_ERR("error writing to register 0x%X (%d)",
-				reg, ret);
+			LOG_ERR("error writing to register 0x%X (%d)", reg, ret);
 			return ret;
 		}
 		*cache = value;
@@ -121,8 +120,7 @@ static inline int update_input_regs(const struct device *dev, uint8_t *buf)
 {
 	struct gpio_fxl6408_drv_data *const drv_data =
 		(struct gpio_fxl6408_drv_data *const)dev->data;
-	int ret = read_port_regs(dev, REG_INPUT_VALUE,
-				 &drv_data->reg_cache.input);
+	int ret = read_port_regs(dev, REG_INPUT_VALUE, &drv_data->reg_cache.input);
 	*buf = drv_data->reg_cache.input;
 
 	return ret;
@@ -133,8 +131,7 @@ static inline int update_output_regs(const struct device *dev, uint8_t value)
 	struct gpio_fxl6408_drv_data *const drv_data =
 		(struct gpio_fxl6408_drv_data *const)dev->data;
 
-	return write_port_regs(dev, REG_OUTPUT,
-			&drv_data->reg_cache.output, value);
+	return write_port_regs(dev, REG_OUTPUT, &drv_data->reg_cache.output, value);
 }
 
 static inline int update_high_z_regs(const struct device *dev, uint8_t value)
@@ -142,8 +139,7 @@ static inline int update_high_z_regs(const struct device *dev, uint8_t value)
 	struct gpio_fxl6408_drv_data *const drv_data =
 		(struct gpio_fxl6408_drv_data *const)dev->data;
 
-	return write_port_regs(dev, REG_OUTPUT_HIGH_Z,
-			&drv_data->reg_cache.high_z, value);
+	return write_port_regs(dev, REG_OUTPUT_HIGH_Z, &drv_data->reg_cache.high_z, value);
 }
 
 static inline int update_direction_regs(const struct device *dev, uint8_t value)
@@ -151,8 +147,7 @@ static inline int update_direction_regs(const struct device *dev, uint8_t value)
 	struct gpio_fxl6408_drv_data *const drv_data =
 		(struct gpio_fxl6408_drv_data *const)dev->data;
 
-	return write_port_regs(dev, REG_DIRECTION,
-			&drv_data->reg_cache.dir, value);
+	return write_port_regs(dev, REG_DIRECTION, &drv_data->reg_cache.dir, value);
 }
 
 static inline int update_pul_sel_regs(const struct device *dev, uint8_t value)
@@ -160,8 +155,7 @@ static inline int update_pul_sel_regs(const struct device *dev, uint8_t value)
 	struct gpio_fxl6408_drv_data *const drv_data =
 		(struct gpio_fxl6408_drv_data *const)dev->data;
 
-	return write_port_regs(dev, REG_PUD_SEL,
-			&drv_data->reg_cache.pud_sel, value);
+	return write_port_regs(dev, REG_PUD_SEL, &drv_data->reg_cache.pud_sel, value);
 }
 
 static inline int update_pul_en_regs(const struct device *dev, uint8_t value)
@@ -169,8 +163,7 @@ static inline int update_pul_en_regs(const struct device *dev, uint8_t value)
 	struct gpio_fxl6408_drv_data *const drv_data =
 		(struct gpio_fxl6408_drv_data *const)dev->data;
 
-	return write_port_regs(dev, REG_PUD_EN,
-			&drv_data->reg_cache.pud_en, value);
+	return write_port_regs(dev, REG_PUD_EN, &drv_data->reg_cache.pud_en, value);
 }
 
 static int setup_pin_dir(const struct device *dev, uint32_t pin, int flags)
@@ -226,8 +219,7 @@ static int setup_pin_dir(const struct device *dev, uint32_t pin, int flags)
  *
  * @return 0 if successful, failed otherwise
  */
-static int setup_pin_pullupdown(const struct device *dev, uint32_t pin,
-				int flags)
+static int setup_pin_pullupdown(const struct device *dev, uint32_t pin, int flags)
 {
 	struct gpio_fxl6408_drv_data *const drv_data =
 		(struct gpio_fxl6408_drv_data *const)dev->data;
@@ -253,15 +245,13 @@ static int setup_pin_pullupdown(const struct device *dev, uint32_t pin,
 	/* Enable/disable pull up/down */
 	reg_pud = drv_data->reg_cache.pud_en;
 
-	WRITE_BIT(reg_pud, pin,
-		  (flags & (GPIO_PULL_UP | GPIO_PULL_DOWN)) != 0U);
+	WRITE_BIT(reg_pud, pin, (flags & (GPIO_PULL_UP | GPIO_PULL_DOWN)) != 0U);
 
 	ret = update_pul_en_regs(dev, reg_pud);
 	return ret;
 }
 
-static int gpio_fxl6408_pin_config(const struct device *dev, gpio_pin_t pin,
-				   gpio_flags_t flags)
+static int gpio_fxl6408_pin_config(const struct device *dev, gpio_pin_t pin, gpio_flags_t flags)
 {
 	struct gpio_fxl6408_drv_data *const drv_data =
 		(struct gpio_fxl6408_drv_data *const)dev->data;
@@ -320,8 +310,7 @@ done:
 	return ret;
 }
 
-static int gpio_fxl6408_port_set_masked_raw(const struct device *dev,
-						uint32_t mask, uint32_t value)
+static int gpio_fxl6408_port_set_masked_raw(const struct device *dev, uint32_t mask, uint32_t value)
 {
 	struct gpio_fxl6408_drv_data *const drv_data =
 		(struct gpio_fxl6408_drv_data *const)dev->data;
@@ -345,20 +334,17 @@ static int gpio_fxl6408_port_set_masked_raw(const struct device *dev,
 	return ret;
 }
 
-static int gpio_fxl6408_port_set_bits_raw(const struct device *dev,
-					  uint32_t mask)
+static int gpio_fxl6408_port_set_bits_raw(const struct device *dev, uint32_t mask)
 {
 	return gpio_fxl6408_port_set_masked_raw(dev, mask, mask);
 }
 
-static int gpio_fxl6408_port_clear_bits_raw(const struct device *dev,
-						uint32_t mask)
+static int gpio_fxl6408_port_clear_bits_raw(const struct device *dev, uint32_t mask)
 {
 	return gpio_fxl6408_port_set_masked_raw(dev, mask, 0);
 }
 
-static int gpio_fxl6408_port_toggle_bits(const struct device *dev,
-					 uint32_t mask)
+static int gpio_fxl6408_port_toggle_bits(const struct device *dev, uint32_t mask)
 {
 	struct gpio_fxl6408_drv_data *const drv_data =
 		(struct gpio_fxl6408_drv_data *const)dev->data;
@@ -381,11 +367,33 @@ static int gpio_fxl6408_port_toggle_bits(const struct device *dev,
 	return ret;
 }
 
+static bool gpio_fxl6408_is_nreset_pin_defined(const struct device *dev)
+{
+	const struct gpio_fxl6408_config *config = dev->config;
+	return config->nreset_pin.port != NULL;
+}
+
+static void gpio_fxl6408_set_enable_pin(const struct device *dev, const int value)
+{
+	const struct gpio_fxl6408_config *config = dev->config;
+	if (gpio_fxl6408_is_nreset_pin_defined(dev)) {
+		(void)gpio_pin_set_dt(&config->nreset_pin, value);
+	}
+}
+
 int gpio_fxl6408_init(const struct device *dev)
 {
 	struct gpio_fxl6408_drv_data *const drv_data =
 		(struct gpio_fxl6408_drv_data *const)dev->data;
 	const struct gpio_fxl6408_config *const config = dev->config;
+
+	if (gpio_fxl6408_is_nreset_pin_defined(dev)) {
+		if (gpio_pin_configure_dt(&config->nreset_pin, GPIO_OUTPUT) < 0) {
+			LOG_ERR("Error, nreset_pin gpio output config failed");
+			return -ENODEV;
+		}
+		gpio_fxl6408_set_enable_pin(dev, 1);
+	}
 
 	if (!device_is_ready(config->i2c.bus)) {
 		LOG_ERR("%s is not ready", config->i2c.bus->name);
@@ -445,30 +453,25 @@ static const struct gpio_driver_api gpio_fxl_driver = {
 	.port_toggle_bits = gpio_fxl6408_port_toggle_bits,
 };
 
-#define GPIO_FXL6408_DEVICE_INSTANCE(inst)                                     \
-	static const struct gpio_fxl6408_config gpio_fxl6408_##inst##_cfg = {  \
-		.common = {                                                    \
-			.port_pin_mask = GPIO_PORT_PIN_MASK_FROM_DT_INST(inst),\
-		},                                                             \
-		.i2c = I2C_DT_SPEC_INST_GET(inst)                              \
-	};                                                                     \
-\
-	static struct gpio_fxl6408_drv_data gpio_fxl6408_##inst##_drvdata = {  \
-		.reg_cache = {                                                 \
-			.input = 0x0,                                          \
-			.output = 0x00,                                        \
-			.dir = 0x0,                                            \
-			.high_z = 0xFF,                                        \
-			.pud_en = 0xFF,                                        \
-			.pud_sel = 0x0                                         \
-		}                                                              \
-	};                                                                     \
-\
-	PM_DEVICE_DT_INST_DEFINE(inst, gpio_fxl6408_pm_action);\
-	DEVICE_DT_INST_DEFINE(inst, gpio_fxl6408_init, PM_DEVICE_DT_INST_GET(inst),                   \
-		&gpio_fxl6408_##inst##_drvdata,                                \
-		&gpio_fxl6408_##inst##_cfg, POST_KERNEL,                       \
-		CONFIG_GPIO_FXL6408_INIT_PRIORITY,                             \
-		&gpio_fxl_driver);
+#define GPIO_FXL6408_DEVICE_INSTANCE(inst)                                                         \
+	static const struct gpio_fxl6408_config gpio_fxl6408_##inst##_cfg = {                      \
+		.common =                                                                          \
+			{                                                                          \
+				.port_pin_mask = GPIO_PORT_PIN_MASK_FROM_DT_INST(inst),            \
+			},                                                                         \
+		.i2c = I2C_DT_SPEC_INST_GET(inst),                                                 \
+		.nreset_pin = GPIO_DT_SPEC_INST_GET_OR(inst, nreset_gpios, {})};                   \
+	static struct gpio_fxl6408_drv_data gpio_fxl6408_##inst##_drvdata = {                      \
+		.reg_cache = {.input = 0x0,                                                        \
+			      .output = 0x00,                                                      \
+			      .dir = 0x0,                                                          \
+			      .high_z = 0xFF,                                                      \
+			      .pud_en = 0xFF,                                                      \
+			      .pud_sel = 0x0}};                                                    \
+                                                                                                   \
+	PM_DEVICE_DT_INST_DEFINE(inst, gpio_fxl6408_pm_action);                                    \
+	DEVICE_DT_INST_DEFINE(inst, gpio_fxl6408_init, PM_DEVICE_DT_INST_GET(inst),                \
+			      &gpio_fxl6408_##inst##_drvdata, &gpio_fxl6408_##inst##_cfg,          \
+			      POST_KERNEL, CONFIG_GPIO_FXL6408_INIT_PRIORITY, &gpio_fxl_driver);
 
 DT_INST_FOREACH_STATUS_OKAY(GPIO_FXL6408_DEVICE_INSTANCE)

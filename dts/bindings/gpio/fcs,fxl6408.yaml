@@ -11,6 +11,11 @@ properties:
   "#gpio-cells":
     const: 2
 
+  nreset-gpios:
+    description: |
+      GPIO connected to the nreset pin of the FXL6408. This pin is used to reset the device.
+    type: phandle-array
+
 gpio-cells:
   - pin
   - flags
