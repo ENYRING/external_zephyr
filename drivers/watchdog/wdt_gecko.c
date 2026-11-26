@@ -163,9 +163,8 @@ static int wdt_gecko_install_timeout(const struct device *dev,
 	data->wdog_config.perSel = (WDOG_PeriodSel_TypeDef)
 		wdt_gecko_get_persel_from_timeout(cfg->window.max);
 
-	installed_timeout = wdt_gecko_get_timeout_from_persel(
-		data->wdog_config.perSel);
-	LOG_INF("Installed timeout value: %u", installed_timeout);
+	installed_timeout = wdt_gecko_get_timeout_from_persel(data->wdog_config.perSel);
+	LOG_DBG("Installed timeout value: %u", installed_timeout);
 
 	if (cfg->window.min > 0) {
 		/* Window mode. Use rounded up timeout value to
@@ -266,7 +265,7 @@ static int wdt_gecko_init(const struct device *dev)
 	/* Enable IRQs */
 	config->irq_cfg_func();
 
-	LOG_INF("Device %s initialized", dev->name);
+	LOG_DBG("Device %s initialized", dev->name);
 
 	return 0;
 }

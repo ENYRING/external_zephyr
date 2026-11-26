@@ -202,7 +202,7 @@ static int flash_gecko_init(const struct device *dev)
 	/* Lock the MSC module. */
 	MSC->LOCK = 0;
 
-	LOG_INF("Device %s initialized", dev->name);
+	LOG_DBG("Device %s initialized", dev->name);
 
 	return 0;
 }
