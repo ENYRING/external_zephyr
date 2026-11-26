@@ -13,6 +13,7 @@ int pinctrl_configure_pins(const pinctrl_soc_pin_t *pins, uint8_t pin_cnt, uintp
 {
 	USART_TypeDef *base = (USART_TypeDef *)reg;
 	uint8_t loc;
+	uint8_t lp;
 #ifdef CONFIG_SOC_FAMILY_SILABS_S1
 	LEUART_TypeDef *lebase = (LEUART_TypeDef *)reg;
 #else
@@ -46,6 +47,7 @@ int pinctrl_configure_pins(const pinctrl_soc_pin_t *pins, uint8_t pin_cnt, uintp
 		pin_config.port = GECKO_GET_PORT(pins[i]);
 		pin_config.pin = GECKO_GET_PIN(pins[i]);
 		loc = GECKO_GET_LOC(pins[i]);
+		lp = GECKO_GET_LP(pins[i]);
 
 		switch (GECKO_GET_FUN(pins[i])) {
 #ifdef CONFIG_UART_GECKO
@@ -200,8 +202,12 @@ int pinctrl_configure_pins(const pinctrl_soc_pin_t *pins, uint8_t pin_cnt, uintp
 			break;
 
 		case GECKO_FUN_SPI_MOSI:
-			pin_config.mode = gpioModePushPull;
-			pin_config.out = 1;
+			if (lp) {
+                pin_config.mode = gpioModeInput;
+            } else {
+                pin_config.mode = gpioModePushPull;
+                pin_config.out = 1;
+            }
 			GPIO->EUSARTROUTE[eusart_num].TXROUTE =
 				(pin_config.port << _GPIO_EUSART_TXROUTE_PORT_SHIFT) |
 				(pin_config.pin << _GPIO_EUSART_TXROUTE_PIN_SHIFT);
