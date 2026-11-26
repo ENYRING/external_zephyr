@@ -455,6 +455,17 @@ static int uart_gecko_init(const struct device *dev)
 	/* The peripheral and gpio clock are already enabled from soc and gpio driver */
 	/* Enable USART clock */
 #ifdef CONFIG_CLOCK_CONTROL
+	if (clock_control_get_status(config->clock_dev,
+				     (clock_control_subsys_t)&config->clock_cfg) ==
+	    CLOCK_CONTROL_STATUS_ON) {
+
+		err = clock_control_off(config->clock_dev,
+					(clock_control_subsys_t)&config->clock_cfg);
+		if (err < 0) {
+			return err;
+		}
+	}
+
 	err = clock_control_on(config->clock_dev, (clock_control_subsys_t)&config->clock_cfg);
 	if (err < 0) {
 		return err;
