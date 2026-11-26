@@ -486,6 +486,7 @@ struct mcp251xfd_data {
 	struct gpio_callback int_gpio_cb;
 	struct k_thread int_thread;
 	k_thread_stack_t *int_thread_stack;
+	k_tid_t int_thread_id;
 	struct k_sem int_sem;
 
 	/* General */

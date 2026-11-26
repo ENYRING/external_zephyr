@@ -15,6 +15,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/sys/crc.h>
+#include <zephyr/pm/device.h>
 
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(can_mcp251xfd, CONFIG_CAN_LOG_LEVEL);
@@ -1494,7 +1495,7 @@ static void polling_thread_task(void *p1, void *p2, void *p3)
 	}
 }
 
-static int mcp251xfd_init(const struct device *dev)
+static int mcp251xfd_configure(const struct device *dev)
 {
 	const struct mcp251xfd_config *dev_cfg = dev->config;
 	struct mcp251xfd_data *dev_data = dev->data;
@@ -1506,63 +1507,7 @@ static int mcp251xfd_init(const struct device *dev)
 	struct can_timing timing_data = {0};
 #endif
 
-	dev_data->dev = dev;
-
-	if (dev_cfg->clk_dev != NULL) {
-		uint32_t clk_id = dev_cfg->clk_id;
-
-		if (!device_is_ready(dev_cfg->clk_dev)) {
-			LOG_ERR("Clock controller not ready");
-			return -ENODEV;
-		}
-
-		ret = clock_control_on(dev_cfg->clk_dev, (clock_control_subsys_t)clk_id);
-		if (ret < 0) {
-			LOG_ERR("Failed to enable clock [%d]", ret);
-			return ret;
-		}
-	}
-
-	k_sem_init(&dev_data->int_sem, 0, 1);
-	k_sem_init(&dev_data->tx_sem, MCP251XFD_TX_QUEUE_ITEMS, MCP251XFD_TX_QUEUE_ITEMS);
-
-	k_mutex_init(&dev_data->mutex);
-
-	if (!spi_is_ready_dt(&dev_cfg->bus)) {
-		LOG_ERR("SPI bus %s not ready", dev_cfg->bus.bus->name);
-		return -ENODEV;
-	}
-
-	if (!gpio_is_ready_dt(&dev_cfg->int_gpio_dt)) {
-		LOG_ERR("GPIO port not ready");
-		return -ENODEV;
-	}
-
-	if (gpio_pin_configure_dt(&dev_cfg->int_gpio_dt, GPIO_INPUT) < 0) {
-		LOG_ERR("Unable to configure GPIO pin");
-		return -EINVAL;
-	}
-
-	k_thread_create(&polling_thread, polling_thread_stack,
-			K_THREAD_STACK_SIZEOF(polling_thread_stack), polling_thread_task,
-			(void *)dev, NULL, NULL, K_PRIO_COOP(CONFIG_CAN_MCP251XFD_INT_THREAD_PRIO),
-			0, K_NO_WAIT);
-
-	k_thread_create(&dev_data->int_thread, dev_data->int_thread_stack,
-			CONFIG_CAN_MCP251XFD_INT_THREAD_STACK_SIZE,
-			(k_thread_entry_t)mcp251xfd_int_thread, (void *)dev, NULL, NULL,
-			K_PRIO_COOP(CONFIG_CAN_MCP251XFD_INT_THREAD_PRIO), 0, K_NO_WAIT);
-
-	(void)k_thread_name_set(&dev_data->int_thread, "MCP251XFD interrupt thread");
-
-	ret = mcp251xfd_reset(dev);
-	if (ret < 0) {
-		LOG_ERR("Failed to reset the device [%d]", ret);
-		return ret;
-	}
-
-	ret = can_calc_timing(dev, &timing, dev_cfg->common.bitrate,
-			      dev_cfg->common.sample_point);
+	ret = can_calc_timing(dev, &timing, dev_cfg->common.bitrate, dev_cfg->common.sample_point);
 	if (ret < 0) {
 		LOG_ERR("Can't find timing for given param");
 		return ret;
@@ -1663,6 +1608,98 @@ static int mcp251xfd_init(const struct device *dev)
 #if defined(CONFIG_CAN_FD_MODE)
 	ret = can_set_timing_data(dev, &timing_data);
 #endif
+	return ret;
+}
+
+#ifdef CONFIG_PM_DEVICE
+
+static int mcp251xfd_pm_action(const struct device *dev, enum pm_device_action action)
+{
+	const struct mcp251xfd_config *dev_cfg = dev->config;
+	struct mcp251xfd_data *dev_data = dev->data;
+	switch (action) {
+	case PM_DEVICE_ACTION_SUSPEND:
+		LOG_DBG("MCP251XFD OFF");
+		spi_release_dt(&dev_cfg->bus);
+		k_thread_suspend(dev_data->int_thread_id);
+		return 0;
+	case PM_DEVICE_ACTION_RESUME:
+		LOG_DBG("MCP251XFD ON");
+		if (!spi_is_ready_dt(&dev_cfg->bus)) {
+			LOG_ERR("SPI bus %s not ready", dev_cfg->bus.bus->name);
+			return -ENODEV;
+		}
+		k_thread_resume(dev_data->int_thread_id);
+		return mcp251xfd_configure(dev);
+	default:
+		return -ENOTSUP;
+	}
+}
+
+#endif
+
+static int mcp251xfd_init(const struct device *dev)
+{
+	const struct mcp251xfd_config *dev_cfg = dev->config;
+	struct mcp251xfd_data *dev_data = dev->data;
+	int ret;
+
+	dev_data->dev = dev;
+
+	if (dev_cfg->clk_dev != NULL) {
+		uint32_t clk_id = dev_cfg->clk_id;
+
+		if (!device_is_ready(dev_cfg->clk_dev)) {
+			LOG_ERR("Clock controller not ready");
+			return -ENODEV;
+		}
+
+		ret = clock_control_on(dev_cfg->clk_dev, (clock_control_subsys_t)clk_id);
+		if (ret < 0) {
+			LOG_ERR("Failed to enable clock [%d]", ret);
+			return ret;
+		}
+	}
+
+	k_sem_init(&dev_data->int_sem, 0, 1);
+	k_sem_init(&dev_data->tx_sem, MCP251XFD_TX_QUEUE_ITEMS, MCP251XFD_TX_QUEUE_ITEMS);
+
+	k_mutex_init(&dev_data->mutex);
+
+	if (!spi_is_ready_dt(&dev_cfg->bus)) {
+		LOG_ERR("SPI bus %s not ready", dev_cfg->bus.bus->name);
+		return -ENODEV;
+	}
+
+	if (!gpio_is_ready_dt(&dev_cfg->int_gpio_dt)) {
+		LOG_ERR("GPIO port not ready");
+		return -ENODEV;
+	}
+
+	if (gpio_pin_configure_dt(&dev_cfg->int_gpio_dt, GPIO_INPUT) < 0) {
+		LOG_ERR("Unable to configure GPIO pin");
+		return -EINVAL;
+	}
+
+	k_thread_create(&polling_thread, polling_thread_stack,
+			K_THREAD_STACK_SIZEOF(polling_thread_stack), polling_thread_task,
+			(void *)dev, NULL, NULL, K_PRIO_COOP(CONFIG_CAN_MCP251XFD_INT_THREAD_PRIO),
+			0, K_NO_WAIT);
+
+	dev_data->int_thread_id = k_thread_create(&dev_data->int_thread, dev_data->int_thread_stack,
+			CONFIG_CAN_MCP251XFD_INT_THREAD_STACK_SIZE,
+			(k_thread_entry_t)mcp251xfd_int_thread, (void *)dev, NULL, NULL,
+			K_PRIO_COOP(CONFIG_CAN_MCP251XFD_INT_THREAD_PRIO), 0, K_NO_WAIT);
+
+	(void)k_thread_name_set(&dev_data->int_thread, "MCP251XFD interrupt thread");
+
+	ret = mcp251xfd_reset(dev);
+	if (ret < 0) {
+		LOG_ERR("Failed to reset the device [%d]", ret);
+		return ret;
+	}
+
+	ret = mcp251xfd_configure(dev);
 
 	return ret;
 }
@@ -1756,8 +1793,9 @@ static const struct can_driver_api mcp251xfd_api_funcs = {
 			     .msg_handler = mcp251xfd_tef_fifo_handler},                           \
 		MCP251XFD_SET_CLOCK(inst)};                                                        \
                                                                                                    \
-	CAN_DEVICE_DT_INST_DEFINE(inst, mcp251xfd_init, NULL, &mcp251xfd_data_##inst,              \
-				  &mcp251xfd_config_##inst, POST_KERNEL, CONFIG_CAN_INIT_PRIORITY, \
-				  &mcp251xfd_api_funcs);
+	PM_DEVICE_DT_INST_DEFINE(inst, mcp251xfd_pm_action);                                       \
+	CAN_DEVICE_DT_INST_DEFINE(inst, mcp251xfd_init, PM_DEVICE_DT_INST_GET(inst),               \
+				  &mcp251xfd_data_##inst, &mcp251xfd_config_##inst, POST_KERNEL,   \
+				  CONFIG_CAN_INIT_PRIORITY, &mcp251xfd_api_funcs);
 
 DT_INST_FOREACH_STATUS_OKAY(MCP251XFD_INIT)
