@@ -8,6 +8,7 @@
 #include <zephyr/drivers/i2c.h>
 #include <zephyr/kernel.h>
 #include <zephyr/drivers/gpio/gpio_utils.h>
+#include <zephyr/pm/device.h>
 #include <zephyr/logging/log.h>
 
 LOG_MODULE_REGISTER(fxl6408, CONFIG_FXL6408_LOG_LEVEL);
@@ -53,6 +54,7 @@ struct gpio_fxl6408_drv_data {
 	} reg_cache;
 
 	struct k_sem lock;
+	bool force_write;
 };
 
 /**
@@ -97,9 +99,11 @@ static int write_port_regs(const struct device *dev, uint8_t reg,
 			   uint8_t *cache, uint8_t value)
 {
 	const struct gpio_fxl6408_config *const config = dev->config;
+	struct gpio_fxl6408_drv_data *const drv_data =
+		(struct gpio_fxl6408_drv_data *const)dev->data;
 	int ret = 0;
 
-	if (*cache != value) {
+	if (*cache != value || drv_data->force_write) {
 		ret = i2c_reg_write_byte_dt(&config->i2c, reg, value);
 		if (ret != 0) {
 			LOG_ERR("error writing to register 0x%X (%d)",
@@ -388,10 +392,49 @@ int gpio_fxl6408_init(const struct device *dev)
 		return -ENODEV;
 	}
 
+	drv_data->force_write = false;
+
 	k_sem_init(&drv_data->lock, 1, 1);
 
 	return 0;
 }
+
+#ifdef CONFIG_PM_DEVICE
+
+static int gpio_fxl6408_pm_action(const struct device *dev, enum pm_device_action action)
+{
+	struct gpio_fxl6408_drv_data *const drv_data =
+		(struct gpio_fxl6408_drv_data *const)dev->data;
+	uint8_t reg_out = drv_data->reg_cache.output;
+	uint8_t reg_high_z = drv_data->reg_cache.high_z;
+	uint8_t reg_dir = drv_data->reg_cache.dir;
+	uint8_t reg_pud = reg_pud = drv_data->reg_cache.pud_sel;
+	uint8_t reg_pud_en = drv_data->reg_cache.pud_en;
+
+	switch (action) {
+	case PM_DEVICE_ACTION_SUSPEND:
+		LOG_DBG("FXL6408 SUSPEND");
+		k_sem_take(&drv_data->lock, K_FOREVER);
+		break;
+	case PM_DEVICE_ACTION_RESUME:
+		LOG_DBG("FXL6408 RESUME");
+		/* Rewrite last cache and force updating registers */
+		drv_data->force_write = true;
+		(void)update_output_regs(dev, reg_out);
+		(void)update_high_z_regs(dev, reg_high_z);
+		(void)update_direction_regs(dev, reg_dir);
+		(void)update_pul_sel_regs(dev, reg_pud);
+		(void)update_pul_en_regs(dev, reg_pud_en);
+		drv_data->force_write = false;
+		k_sem_give(&drv_data->lock);
+		break;
+	default:
+		return -ENOTSUP;
+	}
+	return 0;
+}
+
+#endif
 
 static const struct gpio_driver_api gpio_fxl_driver = {
 	.pin_configure = gpio_fxl6408_pin_config,
@@ -421,7 +464,8 @@ static const struct gpio_driver_api gpio_fxl_driver = {
 		}                                                              \
 	};                                                                     \
 \
-	DEVICE_DT_INST_DEFINE(inst, gpio_fxl6408_init, NULL,                   \
+	PM_DEVICE_DT_INST_DEFINE(inst, gpio_fxl6408_pm_action);\
+	DEVICE_DT_INST_DEFINE(inst, gpio_fxl6408_init, PM_DEVICE_DT_INST_GET(inst),                   \
 		&gpio_fxl6408_##inst##_drvdata,                                \
 		&gpio_fxl6408_##inst##_cfg, POST_KERNEL,                       \
 		CONFIG_GPIO_FXL6408_INIT_PRIORITY,                             \
