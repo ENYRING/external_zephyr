@@ -676,9 +676,11 @@ defined(CONFIG_MCUMGR_SMP_COMMAND_STATUS_HOOKS)
 				if (flash_img_check(&ctx, &fic, g_img_mgmt_state.area_id) == 0) {
 					data_match = true;
 				} else {
+					rc = IMG_MGMT_ERR_INVALID_HASH;
 					LOG_ERR("Uploaded image sha256 hash verification failed");
 				}
 			} else {
+				rc = IMG_MGMT_ERR_INVALID_HASH;
 				LOG_ERR("Uploaded image sha256 could not be checked");
 			}
 #endif
