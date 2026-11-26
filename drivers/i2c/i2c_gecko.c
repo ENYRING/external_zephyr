@@ -16,6 +16,7 @@
 #include <em_i2c.h>
 #include <em_gpio.h>
 #include <soc.h>
+#include <zephyr/pm/device.h>
 
 #define LOG_LEVEL CONFIG_I2C_LOG_LEVEL
 #include <zephyr/logging/log.h>
@@ -225,6 +226,29 @@ static const struct i2c_driver_api i2c_gecko_driver_api = {
 #endif
 };
 
+#ifdef CONFIG_PM_DEVICE
+
+static int i2c_gecko_pm_action(const struct device *dev, enum pm_device_action action)
+{
+	const struct i2c_gecko_config *config = dev->config;
+
+	switch (action) {
+	case PM_DEVICE_ACTION_SUSPEND:
+		LOG_DBG("I2C SUSPEND");
+		CMU_ClockEnable(config->clock, false);
+		return 0;
+	case PM_DEVICE_ACTION_RESUME:
+		LOG_DBG("I2C RESUME");
+		CMU_ClockEnable(config->clock, true);
+		(void) pinctrl_apply_state(config->pcfg, PINCTRL_STATE_DEFAULT);
+		return 0;
+	default:
+		return -ENOTSUP;
+	}
+}
+
+#endif
+
 #if defined(CONFIG_I2C_TARGET)
 void i2c_gecko_isr(const struct device *dev)
 {
@@ -312,8 +336,8 @@ void i2c_gecko_isr(const struct device *dev)
 		GECKO_I2C_IRQ_DATA(idx)};							\
 												\
 	static struct i2c_gecko_data i2c_gecko_data_##idx;					\
-												\
-	I2C_DEVICE_DT_INST_DEFINE(idx, i2c_gecko_init, NULL, &i2c_gecko_data_##idx,		\
+	PM_DEVICE_DT_INST_DEFINE(idx, i2c_gecko_pm_action);\
+	I2C_DEVICE_DT_INST_DEFINE(idx, i2c_gecko_init, PM_DEVICE_DT_INST_GET(idx), &i2c_gecko_data_##idx,		\
 				  &i2c_gecko_config_##idx, POST_KERNEL,				\
 					CONFIG_I2C_INIT_PRIORITY, &i2c_gecko_driver_api);	\
 												\
