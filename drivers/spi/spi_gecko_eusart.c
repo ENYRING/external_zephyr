@@ -323,6 +323,7 @@ static int spi_gecko_eusart_pm_action(const struct device *dev, enum pm_device_a
 		err = release_cs_pins(dev);
 		err |= clock_control_off(config->clock_dev,
 				(clock_control_subsys_t)&config->clock_cfg);
+		err |= pinctrl_apply_state(config->pcfg, PINCTRL_STATE_SLEEP);
 		if (err < 0) {
 			return err;
 		}
