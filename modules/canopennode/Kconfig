@@ -42,7 +42,7 @@ config CANOPENNODE_TX_WORKQUEUE_STACK_SIZE
 config CANOPENNODE_TX_WORKQUEUE_PRIORITY
 	int "Priority for CANopen transmit workqueue"
 	default 0 if !COOP_ENABLED
-	default -1
+	default 13
 	help
 	  Priority level of the internal CANopen transmit workqueue.
 
@@ -96,7 +96,7 @@ config CANOPENNODE_SYNC_THREAD_PRIORITY
 	int "Priority for CANopen SYNC thread"
 	depends on CANOPENNODE_SYNC_THREAD
 	default 0 if !COOP_ENABLED
-	default -5
+	default 12
 	help
 	  Priority level of the internal thread which processes
 	  CANopen SYNC RPDOs and TPDOs.

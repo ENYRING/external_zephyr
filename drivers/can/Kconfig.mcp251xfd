@@ -39,7 +39,7 @@ config CAN_MCP251XFD_INT_THREAD_STACK_SIZE
 
 config CAN_MCP251XFD_INT_THREAD_PRIO
 	int "Priority for interrupt handler"
-	default 2
+	default 11
 	help
 	  Thread priority of the interrupt handler. A higher number implies a
 	  higher priority. The thread is cooperative and will not be interrupted by
