@@ -21,6 +21,12 @@ config LOG_FUNC_NAME_PREFIX_DBG
 
 endmenu
 
+config MODULE_NAME_NOT_DISPLAYED
+	bool "explicitely disable module name display in logs"
+	default n
+	help
+		display or not the module name
+
 menuconfig LOG_MIPI_SYST_ENABLE
 	bool "MIPI SyS-T format output"
 	select MIPI_SYST_LIB

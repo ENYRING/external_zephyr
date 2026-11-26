@@ -242,6 +242,9 @@ static const char *link_source_name_get(uint8_t domain_id, uint32_t source_id)
 
 const char *log_source_name_get(uint32_t domain_id, uint32_t source_id)
 {
+#ifdef CONFIG_MODULE_NAME_NOT_DISPLAYED
+	return NULL;
+#endif
 	if (z_log_is_local_domain(domain_id)) {
 		if (source_id < log_src_cnt_get(domain_id)) {
 			return TYPE_SECTION_START(log_const)[source_id].name;
