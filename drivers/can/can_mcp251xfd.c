@@ -1629,8 +1629,13 @@ static int mcp251xfd_pm_action(const struct device *dev, enum pm_device_action a
 			LOG_ERR("SPI bus %s not ready", dev_cfg->bus.bus->name);
 			return -ENODEV;
 		}
+		/* reconfigure the controller and only then, restart interrupt thread */
+		const int ret = mcp251xfd_configure(dev);
+		if (ret < 0) {
+			return ret;
+		}
 		k_thread_resume(dev_data->int_thread_id);
-		return mcp251xfd_configure(dev);
+		return 0;
 	default:
 		return -ENOTSUP;
 	}
@@ -1681,16 +1686,20 @@ static int mcp251xfd_init(const struct device *dev)
 		return -EINVAL;
 	}
 
+	/* Threads are created suspended: they must not touch the controller until
+	 * reset and configuration have completed successfully.
+	 */
 	k_thread_create(&polling_thread, polling_thread_stack,
 			K_THREAD_STACK_SIZEOF(polling_thread_stack), polling_thread_task,
 			(void *)dev, NULL, NULL, K_PRIO_COOP(CONFIG_CAN_MCP251XFD_INT_THREAD_PRIO),
-			0, K_NO_WAIT);
+			0, K_FOREVER);
 	(void)k_thread_name_set(&polling_thread, "MCP251XFD_polling");
 
-	dev_data->int_thread_id = k_thread_create(&dev_data->int_thread, dev_data->int_thread_stack,
-			CONFIG_CAN_MCP251XFD_INT_THREAD_STACK_SIZE,
-			(k_thread_entry_t)mcp251xfd_int_thread, (void *)dev, NULL, NULL,
-			K_PRIO_COOP(CONFIG_CAN_MCP251XFD_INT_THREAD_PRIO), 0, K_NO_WAIT);
+	dev_data->int_thread_id =
+		k_thread_create(&dev_data->int_thread, dev_data->int_thread_stack,
+				CONFIG_CAN_MCP251XFD_INT_THREAD_STACK_SIZE,
+				(k_thread_entry_t)mcp251xfd_int_thread, (void *)dev, NULL, NULL,
+				K_PRIO_COOP(CONFIG_CAN_MCP251XFD_INT_THREAD_PRIO), 0, K_FOREVER);
 
 	(void)k_thread_name_set(&dev_data->int_thread, "MCP251XFD_interrupt");
 
@@ -1701,8 +1710,14 @@ static int mcp251xfd_init(const struct device *dev)
 	}
 
 	ret = mcp251xfd_configure(dev);
+	if (ret < 0) {
+		return ret;
+	}
 
-	return ret;
+	k_thread_start(&polling_thread);
+	k_thread_start(dev_data->int_thread_id);
+
+	return 0;
 }
 
 static const struct can_driver_api mcp251xfd_api_funcs = {
